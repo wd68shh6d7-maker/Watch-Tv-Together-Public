@@ -23,3 +23,29 @@ jobs:
         run: npm run build
       - name: Verify build output
         run: test -s dist/index.html
+      - name: Smoke test Supabase Realtime
+        run: |
+          node --input-type=module <<'NODE'
+          import { createClient } from '@supabase/supabase-js';
+          const url = 'https://igsqpcsytwyqewhwfgid.supabase.co';
+          const key = 'sb_publishable_Tk1GneAVgvzR0CJd2k0uVw_XJjEIVic';
+          const supabase = createClient(url, key);
+          const room = 'smoke-' + Date.now();
+          const a = supabase.channel(room + '-a');
+          const b = supabase.channel(room + '-b');
+          let received = false;
+          b.on('broadcast', { event: 'smoke' }, ({ payload }) => {
+            if (payload?.ok === true) received = true;
+          });
+          await Promise.all([
+            new Promise((resolve, reject) => a.subscribe(s => s === 'SUBSCRIBED' ? resolve() : s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' ? reject(new Error(s)) : null)),
+            new Promise((resolve, reject) => b.subscribe(s => s === 'SUBSCRIBED' ? resolve() : s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' ? reject(new Error(s)) : null))
+          ]);
+          await a.send({ type: 'broadcast', event: 'smoke', payload: { ok: true } });
+          const deadline = Date.now() + 8000;
+          while (!received && Date.now() < deadline) await new Promise(r => setTimeout(r, 100));
+          await supabase.removeChannel(a);
+          await supabase.removeChannel(b);
+          if (!received) throw new Error('Realtime broadcast was not received');
+          console.log('Supabase Realtime smoke test passed');
+          NODE
