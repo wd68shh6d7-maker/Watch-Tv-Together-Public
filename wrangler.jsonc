@@ -1,0 +1,8 @@
+{
+  "name": "watch-together-app",
+  "compatibility_date": "2026-09-26",
+  "main": "src/worker.js",
+  "assets": {
+    "directory": "./dist"
+  }
+}
