@@ -11,6 +11,10 @@ const services = [
     guide: ['Live TV','News','Sports','Movies','Comedy','Crime','Drama','Kids & Family','Lifestyle','Reality','Sci-Fi','True Crime'] },
   { name: 'The Roku Channel', url: 'https://therokuchannel.roku.com/browse/free-movies-and-tv', mark: 'R', free: true,
     guide: ['Live TV','News','Sports','Movies','Comedy','Crime','Drama','Kids & Family','Lifestyle','Reality','Game Shows'] },
+  { name: 'Real Life Network', url: 'https://reallifenetwork.com/jack-hibbs', mark: 'RLN', free: true,
+    guide: ['Live Now','Jack Hibbs','Bible Teaching','Faith & Culture','Christian News','Family & Children','Documentaries','Podcasts','On Demand'] },
+  { name: 'GraceFM', url: 'https://calvaryco.church/gracefm', mark: 'GFM', free: true,
+    guide: ['Listen Live 24/7','Bible Teaching','Worship','Ed Taylor','Calvary Church','Weekend Worship'] },
   { name: 'Prime Video', url: 'https://www.primevideo.com/', mark: 'P', guide: ['Prime Video'] },
   { name: 'Paramount+', url: 'https://www.paramountplus.com/', mark: 'P+', guide: ['Live TV','CBS','News','Sports','Shows','Movies'] },
   { name: 'discovery+', url: 'https://www.discoveryplus.com/', mark: 'D+', guide: ['Live','Discovery','HGTV','Food Network','TLC','Animal Planet','Travel Channel'] }
@@ -56,7 +60,7 @@ document.querySelector('#app').innerHTML = `
     <div class="guide-tools"><input id="channelSearch" placeholder="Search channels or categories" aria-label="Search channels or categories"><button id="openGuide">Open service</button></div>
     <div class="channel-list" id="channelList"></div>
     <div class="channel-nav"><button id="prevChannel" class="secondary">‹ Previous</button><strong id="selectedChannel">Select a channel</strong><button id="nextChannel" class="secondary">Next ›</button></div>
-    <p class="muted small">Choose a channel here, then tap Open to continue in the provider's own player. Watch Together does not bypass provider login, subscriptions, DRM, or channel restrictions.</p>
+    <p class="muted small">Choose a channel here, then tap Open to continue in the provider's own player or official stream. Watch Together does not bypass provider login, subscriptions, DRM, or channel restrictions.</p>
   </section>
 
   <section class="card">
@@ -321,7 +325,7 @@ channelSearch.oninput = () => {
 };
 document.querySelector('#prevChannel').onclick = () => { if (!filteredChannels.length) return; selectedIndex = (selectedIndex - 1 + filteredChannels.length) % filteredChannels.length; renderChannels(); };
 document.querySelector('#nextChannel').onclick = () => { if (!filteredChannels.length) return; selectedIndex = (selectedIndex + 1) % filteredChannels.length; renderChannels(); };
-document.querySelector('#openGuide').onclick = () => { window.open(activeService.url, '_blank', 'noopener,noreferrer'); status.textContent = `${activeService.name}: opening the provider's guide/player.`; };
+document.querySelector('#openGuide').onclick = () => { window.open(activeService.url, '_blank', 'noopener,noreferrer'); status.textContent = `${activeService.name}: opening the official guide/player.`; };
 
 document.querySelectorAll('[data-control]').forEach(b => b.onclick = () => status.textContent = `${b.textContent.trim()} requested for room ${label.textContent}.`);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
