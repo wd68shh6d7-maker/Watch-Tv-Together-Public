@@ -37,7 +37,7 @@ document.querySelector('#app').innerHTML = `
     <div class="hero-copy">
       <span class="eyebrow">PRIVATE WATCH ROOMS</span>
       <h2>Make movie night feel like everyone is in the room.</h2>
-      <p class="muted">Create a room, invite your people, pick a service, and jump through its guide with a few taps.</p>
+      <p class="muted">Create your own room, invite your people, pick a service, and jump through its guide with a few taps. Every guest can create a separate room too.</p>
       <div class="login-row"><input id="name" maxlength="24" placeholder="Your name" aria-label="Your name"><button id="saveName">Continue</button></div>
       <div class="room-actions"><input id="room" maxlength="8" placeholder="Room code" aria-label="Room code"><button id="join">Join room</button></div>
       <p id="status" class="status" aria-live="polite"></p>
@@ -65,7 +65,7 @@ document.querySelector('#app').innerHTML = `
 
   <section class="card" id="together">
     <div class="section-head"><h2>Watch Together room</h2><span id="roomState" class="pill">Not connected</span></div>
-    <div class="share-panel"><div><strong>Invite everyone with one link.</strong><p class="muted">Use Share to send the room through Messages, Messenger, email, or your device's normal share menu.</p></div><div class="share-actions"><button id="openChat">💬 Open chat</button><button id="copyInvite" class="secondary">🔗 Copy invite</button></div></div>
+    <div class="share-panel"><div><strong>Everyone can invite. Everyone can create a room.</strong><p class="muted">Use Share to send this room through Messages, Messenger, email, or your device's normal share menu. Creating another room never takes over this one.</p></div><div class="share-actions"><button id="openChat">💬 Open chat</button><button id="copyInvite" class="secondary">🔗 Copy invite</button></div></div>
     <div class="people" id="people"></div>
     <div class="media-stage"><div class="video-tile"><video id="localVideo" autoplay muted playsinline></video><span>You</span></div><div class="video-tile"><video id="remoteVideo" autoplay playsinline></video><span id="remoteLabel">Waiting for a video guest</span></div></div>
     <div class="call-controls"><button id="voiceCall">🎙️ Voice</button><button id="videoCall">📹 Video</button><button id="hangUp" class="secondary">✕ End call</button></div>
