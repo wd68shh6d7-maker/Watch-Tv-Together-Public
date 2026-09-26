@@ -113,28 +113,37 @@ document.querySelector('#saveName').onclick = () => {
 function currentRoomUrl() {
   const code = input.value.trim().toUpperCase();
   const url = new URL(location.href);
-  if (code) url.searchParams.set('room', code); else url.searchParams.delete('room');
+  if (code) {
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('room', code);
+  }
   return { code, url };
 }
 
-function shareWatchLink() {
+async function shareWatchLink() {
   const { code, url } = currentRoomUrl();
   if (!code) {
-    status.textContent = 'Create a room link first.';
+    status.textContent = 'Create or join a room first, then tap Invite.';
     return;
   }
+  const inviteUrl = url.toString();
   const text = `Join my Watch Together room: ${code}`;
-  if (navigator.share) {
-    navigator.share({title:'Watch Together', text, url:url.toString()})
-      .then(() => { status.textContent = 'Invite ready to share.'; })
-      .catch(() => {});
-  } else if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(url.toString()).then(() => {
-      status.textContent = 'Invite link copied. Paste it into Messages, Facebook Messenger, email, or anywhere you like.';
-    }).catch(() => { status.textContent = url.toString(); });
-  } else {
-    status.textContent = url.toString();
-  }
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Watch Together', text, url: inviteUrl });
+      status.textContent = 'Invite ready to share.';
+      return;
+    }
+  } catch {}
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(inviteUrl);
+      status.textContent = 'Invite link copied. Paste it into Messages, Messenger, email, or anywhere you like.';
+      return;
+    }
+  } catch {}
+  window.prompt('Copy this Watch Together invite link:', inviteUrl);
 }
 
 function setRoom(code) {
@@ -386,21 +395,36 @@ document.querySelector('#sendChat').onclick = async () => {
 };
 chatInput.onkeydown = e => { if (e.key === 'Enter') document.querySelector('#sendChat').click(); };
 
-document.querySelector('#voiceCall').onclick = async () => {
-  const stream = await startMedia(false);
-  if (!stream || !roomChannel) return;
-  for (const [id, pc] of peers) {
-    stream.getTracks().forEach(t => {
-      if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, stream);
+async function ensureMediaCalls() {
+  if (!roomChannel || !localStream) return;
+  const peopleNow = presencePeople().filter(p => p.id !== myId);
+  for (const p of peopleNow) {
+    const pc = createPeer(p.id, p.name);
+    localStream.getTracks().forEach(t => {
+      if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, localStream);
     });
-    if (myId < id) await callPeer(id, '');
+    if (myId < p.id) {
+      try { await callPeer(p.id, p.name); } catch {}
+    }
   }
+}
+
+document.querySelector('#voiceCall').onclick = async () => {
+  if (!roomChannel) {
+    chatStatus.textContent = 'Join a room first.';
+    return;
+  }
+  const stream = await startMedia(false);
+  if (stream) await ensureMediaCalls();
 };
 
 document.querySelector('#videoCall').onclick = async () => {
+  if (!roomChannel) {
+    chatStatus.textContent = 'Join a room first.';
+    return;
+  }
   const stream = await startMedia(true);
-  if (!stream || !roomChannel) return;
-  for (const [id] of peers) if (myId < id) await callPeer(id, '');
+  if (stream) await ensureMediaCalls();
 };
 
 document.querySelector('#hangUp').onclick = () => {
