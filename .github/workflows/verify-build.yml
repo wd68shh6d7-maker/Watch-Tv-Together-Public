@@ -29,10 +29,11 @@ jobs:
           import { createClient } from '@supabase/supabase-js';
           const url = 'https://igsqpcsytwyqewhwfgid.supabase.co';
           const key = 'sb_publishable_Tk1GneAVgvzR0CJd2k0uVw_XJjEIVic';
-          const supabase = createClient(url, key);
+          const clientA = createClient(url, key);
+          const clientB = createClient(url, key);
           const room = 'smoke-' + Date.now();
-          const a = supabase.channel(room + '-a');
-          const b = supabase.channel(room + '-b');
+          const a = clientA.channel(room);
+          const b = clientB.channel(room);
           let received = false;
           b.on('broadcast', { event: 'smoke' }, ({ payload }) => {
             if (payload?.ok === true) received = true;
@@ -44,8 +45,8 @@ jobs:
           await a.send({ type: 'broadcast', event: 'smoke', payload: { ok: true } });
           const deadline = Date.now() + 8000;
           while (!received && Date.now() < deadline) await new Promise(r => setTimeout(r, 100));
-          await supabase.removeChannel(a);
-          await supabase.removeChannel(b);
+          await clientA.removeChannel(a);
+          await clientB.removeChannel(b);
           if (!received) throw new Error('Realtime broadcast was not received');
           console.log('Supabase Realtime smoke test passed');
           NODE
