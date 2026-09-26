@@ -18,7 +18,7 @@ document.querySelector('#app').innerHTML = `
 <main class="shell">
   <header class="topbar">
     <div class="brand"><span class="brand-mark">▶</span><div><span class="eyebrow">WATCH TOGETHER</span><h1>Watch together. Anywhere.</h1></div></div>
-    <div class="top-actions"><span id="userBadge" class="pill">Guest</span><button class="secondary" id="create">Create room</button></div>
+    <div class="top-actions"><span id="userBadge" class="pill">Guest</span><button class="secondary" id="shareRoom">Invite</button><button class="secondary" id="create">Create room</button></div>
   </header>
 
   <section class="hero card">
@@ -252,9 +252,18 @@ function setRoom(code) {
   if (!n) { status.textContent = 'Enter a room code.'; return; }
   connectRoom(n);
 }
-document.querySelector('#create').onclick = () => setRoom(Math.random().toString(36).slice(2, 8));
+const shareRoom = document.querySelector("#shareRoom");
+shareRoom.onclick = async () => {
+  if (!label.textContent || label.textContent === "No room") { status.textContent = "Create or join a room first."; return; }
+  const url = new URL(location.href); url.searchParams.set("room", label.textContent);
+  try { await navigator.share({title:"Watch Together", text:`Join my Watch Together room: ${label.textContent}`, url:url.toString()}); }
+  catch { try { await navigator.clipboard.writeText(url.toString()); status.textContent = "Invite link copied."; } catch { status.textContent = url.toString(); } }
+};
+document.querySelector("#create").onclick = () => setRoom(Math.random().toString(36).slice(2, 8));
 document.querySelector('#join').onclick = () => setRoom(input.value);
-input.onkeydown = e => { if (e.key === 'Enter') setRoom(input.value); };
+input.onkeydown = e => { if (e.key === "Enter") setRoom(input.value); };
+const roomFromUrl = new URLSearchParams(location.search).get("room");
+if (roomFromUrl) { input.value = roomFromUrl.toUpperCase(); setRoom(roomFromUrl); }
 
 document.querySelector('#sendChat').onclick = () => {
   const text = chatInput.value.trim();
