@@ -28,7 +28,7 @@ const services = [
 document.querySelector('#app').innerHTML = `
 <main class="shell">
   <header class="topbar">
-    <div class="brand"><span class="brand-mark">▶</span><div><span class="eyebrow">WATCH TOGETHER</span><h1>Watch together. Anywhere.</h1></div></div>
+    <div class="brand"><img class="brand-mark brand-image" src="./assets/watch-together-icon.png" alt="Watch Together"><div><span class="eyebrow">WATCH TOGETHER</span><h1>Watch together. Anywhere.</h1></div></div>
     <div class="top-actions"><span id="userBadge" class="pill">Guest</span><button class="secondary" id="shareRoom">Invite</button><button class="secondary" id="create">Create room</button></div>
   </header>
 
