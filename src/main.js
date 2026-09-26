@@ -191,6 +191,6 @@ document.querySelector('#prevChannel').onclick = () => { if (!filteredChannels.l
 document.querySelector('#nextChannel').onclick = () => { if (!filteredChannels.length) return; selectedIndex = (selectedIndex + 1) % filteredChannels.length; renderChannels(); };
 document.querySelector('#openGuide').onclick = () => { window.open(activeService.url, '_blank', 'noopener,noreferrer'); status.textContent = `${activeService.name}: opening the official guide/player.`; };
 
-document.querySelectorAll('[data-control]').forEach(b => b.onclick = () => status.textContent = `${b.textContent.trim()} requested for room ${label.textContent}.`);
+document.querySelectorAll('[data-control]').forEach(b => b.onclick = () => status.textContent = `${b.textContent.trim()} requested for room ${input.value.trim().toUpperCase() || 'this room'}.`);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 selectService(activeService.name);
