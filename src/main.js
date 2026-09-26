@@ -172,6 +172,7 @@ document.querySelector('#openChat').onclick = () => { document.querySelector('#t
 
 
 let roomChannel = null;
+let roomReady = false;
 let myId = crypto.randomUUID();
 const peers = new Map();
 const remoteVideos = new Map();
@@ -253,46 +254,58 @@ function createPeer(peerId, name) {
   const pc = new RTCPeerConnection({
     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
   });
+  pc.peerId = peerId;
+  pc.peerName = name || 'Guest';
+  pc.isPolite = myId > peerId;
+  pc.makingOffer = false;
+  pc.ignoreOffer = false;
+  pc.pendingCandidates = [];
   peers.set(peerId, pc);
-  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  if (localStream) localStream.getTracks().forEach(t => {
+    if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, localStream);
+  });
 
   pc.onicecandidate = event => {
-    if (event.candidate && roomChannel) {
-      roomChannel.send({
-        type: 'broadcast',
-        event: 'signal',
-        payload: { from: myId, to: peerId, name: nameInput.value || 'Guest', signal: { candidate: event.candidate } }
+    if (event.candidate && roomReady) {
+      sendRoomEvent('signal', {
+        from: myId, to: peerId, name: nameInput.value || 'Guest',
+        signal: { candidate: event.candidate }
       });
     }
   };
 
+  pc.onnegotiationneeded = async () => {
+    if (!roomReady || !localStream || pc.signalingState !== 'stable' || pc.makingOffer) return;
+    try {
+      pc.makingOffer = true;
+      await pc.setLocalDescription(await pc.createOffer());
+      await sendRoomEvent('signal', {
+        from: myId, to: peerId, name: nameInput.value || 'Guest',
+        signal: { description: pc.localDescription }
+      });
+    } catch {}
+    finally {
+      pc.makingOffer = false;
+    }
+  };
+
   pc.ontrack = event => {
-    if (event.streams?.[0]) createRemoteVideo(peerId, name).srcObject = event.streams[0];
+    if (!event.streams?.[0]) return;
+    const video = createRemoteVideo(peerId, name);
+    video.srcObject = event.streams[0];
+    video.play?.().catch(() => {});
   };
 
   pc.onconnectionstatechange = () => {
-    if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+    if (pc.connectionState === 'connected') chatStatus.textContent = 'Voice/video connection is active.';
+    if (['failed', 'closed'].includes(pc.connectionState)) {
       pc.close();
       peers.delete(peerId);
       removeRemoteVideo(peerId);
     }
   };
   return pc;
-}
-
-async function callPeer(peerId, name) {
-  if (!roomChannel || myId > peerId) return;
-  const pc = createPeer(peerId, name);
-  if (localStream) localStream.getTracks().forEach(t => {
-    if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, localStream);
-  });
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  await roomChannel.send({
-    type: 'broadcast',
-    event: 'signal',
-    payload: { from: myId, to: peerId, name: nameInput.value || 'Guest', signal: { description: pc.localDescription } }
-  });
 }
 
 function closeRoomConnection() {
@@ -307,7 +320,27 @@ function closeRoomConnection() {
     roomChannel = null;
   }
   roomState.textContent = 'Not connected';
+  roomReady = false;
   renderPeople();
+}
+
+async function sendRoomEvent(event, payload) {
+  if (!roomChannel || !roomReady) return false;
+  try {
+    const result = await roomChannel.send({ type: 'broadcast', event, payload });
+    return result === 'ok';
+  } catch {
+    return false;
+  }
+}
+
+async function trackRoomPresence() {
+  if (!roomChannel || !roomReady) return;
+  await roomChannel.track({
+    id: myId,
+    name: (nameInput.value || 'Guest').trim().slice(0, 24) || 'Guest',
+    watch: sharedWatch || null
+  });
 }
 
 async function connectRoom() {
@@ -319,18 +352,25 @@ async function connectRoom() {
   chatMessages.innerHTML = '<div class="muted small">Joining room…</div>';
 
   roomChannel = supabase.channel('room:' + room, {
-    config: { presence: { key: myId } }
+    config: {
+      broadcast: { ack: true },
+      presence: { key: myId }
+    }
   });
 
   roomChannel
     .on('presence', { event: 'sync' }, async () => {
       const peopleNow = presencePeople();
       renderPeople(peopleNow);
-      const peersNow = peopleNow.filter(p => p.id !== myId);
-      for (const p of peersNow) {
-        if (myId < p.id) {
-          try { await callPeer(p.id, p.name); } catch {}
-        }
+
+      const state = roomChannel.presenceState();
+      const watches = Object.values(state).flat()
+        .map(p => p.watch)
+        .filter(Boolean);
+      if (watches.length) showWatching(watches[watches.length - 1]);
+
+      for (const p of peopleNow.filter(p => p.id !== myId)) {
+        createPeer(p.id, p.name);
       }
     })
     .on('broadcast', { event: 'chat' }, ({ payload }) => {
@@ -344,34 +384,49 @@ async function connectRoom() {
       const signal = payload.signal || {};
       try {
         if (signal.description) {
-          await pc.setRemoteDescription(signal.description);
-          if (signal.description.type === 'offer') {
-            if (localStream) localStream.getTracks().forEach(t => {
-              if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, localStream);
-            });
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await roomChannel.send({
-              type: 'broadcast',
-              event: 'signal',
-              payload: { from: myId, to: payload.from, name: nameInput.value || 'Guest', signal: { description: pc.localDescription } }
+          const description = signal.description;
+          const offerCollision =
+            description.type === 'offer' &&
+            (pc.makingOffer || pc.signalingState !== 'stable');
+          pc.ignoreOffer = !pc.isPolite && offerCollision;
+          if (pc.ignoreOffer) return;
+
+          if (offerCollision) await pc.setLocalDescription({ type: 'rollback' });
+          await pc.setRemoteDescription(description);
+
+          if (description.type === 'offer') {
+            await pc.setLocalDescription(await pc.createAnswer());
+            await sendRoomEvent('signal', {
+              from: myId, to: payload.from, name: nameInput.value || 'Guest',
+              signal: { description: pc.localDescription }
             });
           }
+
+          while (pc.pendingCandidates.length) {
+            const candidate = pc.pendingCandidates.shift();
+            await pc.addIceCandidate(candidate);
+          }
         }
-        if (signal.candidate) await pc.addIceCandidate(signal.candidate);
+
+        if (signal.candidate) {
+          if (pc.remoteDescription) await pc.addIceCandidate(signal.candidate);
+          else pc.pendingCandidates.push(signal.candidate);
+        }
       } catch {}
     })
     .subscribe(async statusValue => {
       if (statusValue !== 'SUBSCRIBED') {
-        if (statusValue === 'CHANNEL_ERROR' || statusValue === 'TIMED_OUT') {
+        roomReady = false;
+        if (statusValue === 'CHANNEL_ERROR' || statusValue === 'TIMED_OUT' || statusValue === 'CLOSED') {
           roomState.textContent = 'Unavailable';
-          chatStatus.textContent = 'The live room service could not be reached. Your invite link still works.';
+          chatStatus.textContent = 'The live room service could not be reached. Please try joining again.';
         }
         return;
       }
+      roomReady = true;
       roomState.textContent = 'Connected';
       chatStatus.textContent = 'Room connected. Text chat is ready.';
-      await roomChannel.track({ id: myId, name: (nameInput.value || 'Guest').trim().slice(0, 24) || 'Guest' });
+      await trackRoomPresence();
       renderPeople();
       addChatLine('System', 'You joined room ' + room + '.');
     });
@@ -380,17 +435,14 @@ async function connectRoom() {
 document.querySelector('#sendChat').onclick = async () => {
   const text = chatInput.value.trim().slice(0, 500);
   if (!text) return;
-  if (!roomChannel) {
-    chatStatus.textContent = 'Join a room first.';
+  if (!roomReady) {
+    chatStatus.textContent = 'Join a room first, then send your message.';
     return;
   }
-  const result = await roomChannel.send({
-    type: 'broadcast',
-    event: 'chat',
-    payload: { from: myId, name: nameInput.value || 'Guest', text }
-  });
-  if (result !== 'ok') {
-    chatStatus.textContent = 'The message could not be sent. Please try again.';
+  const payload = { from: myId, name: nameInput.value || 'Guest', text };
+  const ok = await sendRoomEvent('chat', payload);
+  if (!ok) {
+    chatStatus.textContent = 'The message could not be delivered. Please try again.';
     return;
   }
   addChatLine(nameInput.value || 'Guest', text, true);
@@ -399,21 +451,18 @@ document.querySelector('#sendChat').onclick = async () => {
 chatInput.onkeydown = e => { if (e.key === 'Enter') document.querySelector('#sendChat').click(); };
 
 async function ensureMediaCalls() {
-  if (!roomChannel || !localStream) return;
+  if (!roomReady || !localStream) return;
   const peopleNow = presencePeople().filter(p => p.id !== myId);
   for (const p of peopleNow) {
     const pc = createPeer(p.id, p.name);
-    localStream.getTracks().forEach(t => {
-      if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, localStream);
-    });
-    if (myId < p.id) {
-      try { await callPeer(p.id, p.name); } catch {}
+    for (const track of localStream.getTracks()) {
+      if (!pc.getSenders().some(s => s.track === track)) pc.addTrack(track, localStream);
     }
   }
 }
 
 document.querySelector('#voiceCall').onclick = async () => {
-  if (!roomChannel) {
+  if (!roomReady) {
     chatStatus.textContent = 'Join a room first.';
     return;
   }
@@ -422,7 +471,7 @@ document.querySelector('#voiceCall').onclick = async () => {
 };
 
 document.querySelector('#videoCall').onclick = async () => {
-  if (!roomChannel) {
+  if (!roomReady) {
     chatStatus.textContent = 'Join a room first.';
     return;
   }
@@ -451,6 +500,7 @@ function selectService(name) {
   renderGuideTabs();
   renderChannels();
   document.querySelector('#guide').scrollIntoView({behavior:'smooth', block:'start'});
+  if (roomReady) broadcastWatchSelection();
 }
 function renderGuideTabs() {
   guideTabs.innerHTML = services.map(s => `<button class="guide-tab ${s.name===activeService.name?'active':''}" data-service="${s.name}">${s.mark} ${s.name}</button>`).join('');
@@ -475,9 +525,17 @@ channelSearch.oninput = () => {
 };
 document.querySelector('#prevChannel').onclick = () => { if (!filteredChannels.length) return; selectedIndex = (selectedIndex - 1 + filteredChannels.length) % filteredChannels.length; renderChannels(); };
 document.querySelector('#nextChannel').onclick = () => { if (!filteredChannels.length) return; selectedIndex = (selectedIndex + 1) % filteredChannels.length; renderChannels(); };
-function broadcastWatchSelection() {
-  if (!roomChannel) return;
-  roomChannel.send({type:'broadcast',event:'watch',payload:{service:activeService.name,serviceUrl:activeService.url,channel:filteredChannels[selectedIndex]||activeService.name,from:nameInput.value||'Guest'}});
+async function broadcastWatchSelection() {
+  if (!roomReady) return;
+  const payload = {
+    service: activeService.name,
+    serviceUrl: activeService.url,
+    channel: filteredChannels[selectedIndex] || activeService.name,
+    from: nameInput.value || 'Guest'
+  };
+  sharedWatch = payload;
+  await trackRoomPresence();
+  await sendRoomEvent('watch', payload);
 }
 function showWatching(payload) {
   if (!payload?.service || !payload?.serviceUrl) return;
@@ -487,8 +545,8 @@ function showWatching(payload) {
   watchingDetail.textContent = (payload.from || 'Your guest') + ' selected ' + (payload.channel || payload.service) + '.';
 }
 openWatching.onclick = () => { if (sharedWatch?.serviceUrl) window.open(sharedWatch.serviceUrl, '_blank', 'noopener,noreferrer'); };
-document.querySelector('#openGuide').onclick = () => {
-  broadcastWatchSelection();
+document.querySelector('#openGuide').onclick = async () => {
+  await broadcastWatchSelection();
   window.open(activeService.url, '_blank', 'noopener,noreferrer');
   status.textContent = activeService.name + ': opening the official guide/player and sharing your selection with the room.';
 };
