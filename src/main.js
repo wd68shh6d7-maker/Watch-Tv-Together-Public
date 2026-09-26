@@ -1,6 +1,8 @@
 import './style.css';
 
 const services = [
+  { name: 'YouTube', url: 'https://www.youtube.com/', mark: 'YT', free: true,
+    guide: ['Live','Movies & TV','News','Sports','Music','Kids','Documentaries','Comedy','Science & Technology','Official Channels'] },
   { name: 'Pluto TV', url: 'https://pluto.tv/us/watch/live-tv/', mark: 'PTV', free: true,
     guide: ['Featured','Movies','Star Trek','Comedy','Classic TV','Western','Sci-Fi','Drama','True Crime','Reality','News'] },
   { name: 'Tubi', url: 'https://tubitv.com/live', mark: 'T', free: true,
