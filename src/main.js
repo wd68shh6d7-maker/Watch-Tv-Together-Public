@@ -1,4 +1,9 @@
+import { createClient } from '@supabase/supabase-js';
 import './style.css';
+
+const SUPABASE_URL = 'https://igsqpcsytwyqewhwfgid.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Tk1GneAVgvzR0CJd2k0uVw_XJjEIVic';
+const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 const services = [
   { name: 'YouTube', url: 'https://www.youtube.com/', mark: 'YT', free: true,
@@ -67,10 +72,10 @@ document.querySelector('#app').innerHTML = `
     <div class="section-head"><h2>Watch Together room</h2><span id="roomState" class="pill">Not connected</span></div>
     <div class="share-panel"><div><strong>Everyone can invite. Everyone can create a room.</strong><p class="muted">Use Share to send this room through Messages, Messenger, email, or your device's normal share menu. Creating another room never takes over this one.</p></div><div class="share-actions"><button id="openChat">💬 Open chat</button><button id="copyInvite" class="secondary">🔗 Copy invite</button></div></div>
     <div class="people" id="people"></div>
-    <div class="media-stage"><div class="video-tile"><video id="localVideo" autoplay muted playsinline></video><span>You</span></div><div class="video-tile"><video id="remoteVideo" autoplay playsinline></video><span id="remoteLabel">Waiting for a video guest</span></div></div>
+    <div class="media-stage"><div class="video-tile"><video id="localVideo" autoplay muted playsinline></video><span>You</span></div><div id="remoteVideos" class="remote-videos"><div class="video-tile"><span class="muted small">Waiting for a video guest</span></div></div></div>
     <div class="call-controls"><button id="voiceCall">🎙️ Voice</button><button id="videoCall">📹 Video</button><button id="hangUp" class="secondary">✕ End call</button></div>
     <div class="chat-box"><div class="chat-messages" id="chatMessages"><div class="muted small">Join the room to start chatting.</div></div><div class="chat-compose"><input id="chatInput" maxlength="500" placeholder="Type a message…" aria-label="Chat message"><button id="sendChat">Send</button></div></div>
-    <p id="chatStatus" class="muted small">Text, voice, and video are built into the room when the live room server is connected.</p>
+    <p id="chatStatus" class="muted small">Text chat, room presence, voice, and browser video are connected through the Watch Together room service.</p>
     <p class="muted small">Watch Together never asks for or stores your streaming passwords and does not bypass provider login, subscriptions, DRM, or channel restrictions.</p>
   </section>
 
@@ -155,21 +160,260 @@ if (roomFromUrl) { input.value = roomFromUrl.toUpperCase(); setRoom(roomFromUrl)
 document.querySelector('#openChat').onclick = () => { document.querySelector('#together').scrollIntoView({behavior:'smooth',block:'start'}); chatInput.focus(); };
 
 
-let roomSocket = null;
-let myId = null;
+let roomChannel = null;
+let myId = crypto.randomUUID();
 const peers = new Map();
+const remoteVideos = new Map();
 let localStream = null;
-function roomSocketUrl(room){const proto=location.protocol==='https:'?'wss:':'ws:';return proto+'//'+location.host+'/api/room/'+encodeURIComponent(room);}
-function addChatLine(name,text,mine=false){const empty=chatMessages.querySelector('.muted.small');if(empty&&chatMessages.children.length===1)empty.remove();const row=document.createElement('div');row.className='chat-line'+(mine?' mine':'');const who=document.createElement('strong');who.textContent=name;const msg=document.createElement('span');msg.textContent=text;row.append(who,msg);chatMessages.appendChild(row);chatMessages.scrollTop=chatMessages.scrollHeight;}
-function renderPeople(list){people.innerHTML='';(list||[]).forEach(p=>{const el=document.createElement('span');el.className='person';el.textContent=(p.name||'Guest')+(p.id===myId?' · You':'');people.appendChild(el);});}
-async function startMedia(videoMode){if(!navigator.mediaDevices?.getUserMedia){chatStatus.textContent='This browser does not provide camera/microphone access.';return null;}try{localStream?.getTracks().forEach(t=>t.stop());localStream=await navigator.mediaDevices.getUserMedia({audio:true,video:!!videoMode});localVideo.srcObject=videoMode?localStream:null;localVideo.muted=true;chatStatus.textContent=videoMode?'Video call is ready.':'Voice call is ready.';return localStream;}catch{chatStatus.textContent='Camera/microphone permission was not granted.';return null;}}
-function createPeer(peerId,name){if(peers.has(peerId))return peers.get(peerId);const pc=new RTCPeerConnection();peers.set(peerId,pc);if(localStream)localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));pc.onicecandidate=e=>{if(e.candidate&&roomSocket?.readyState===WebSocket.OPEN)roomSocket.send(JSON.stringify({type:'signal',to:peerId,signal:{candidate:e.candidate}}));};pc.ontrack=e=>{if(e.streams?.[0]){remoteVideo.srcObject=e.streams[0];remoteLabel.textContent=name||'Guest';}};pc.onconnectionstatechange=()=>{if(['failed','closed','disconnected'].includes(pc.connectionState)){pc.close();peers.delete(peerId);renderPeople([{id:myId,name:nameInput.value||'Guest'},...Array.from(peers.keys()).map(id=>({id}))]);}};return pc;}
-async function callPeer(peerId,name){const pc=createPeer(peerId,name);if(localStream)localStream.getTracks().forEach(t=>{if(!pc.getSenders().some(s=>s.track===t))pc.addTrack(t,localStream);});const offer=await pc.createOffer();await pc.setLocalDescription(offer);roomSocket?.send(JSON.stringify({type:'signal',to:peerId,signal:{description:pc.localDescription}}));}
-function connectRoom(){const room=input.value.trim().toUpperCase();if(!room||!/^[A-Z0-9]{4,8}$/.test(room))return;if(roomSocket)roomSocket.close();if(location.hostname.endsWith('github.io')){roomState.textContent='Chat server pending';chatStatus.textContent='This launch page is the shareable front door. Live chat, voice, and video are ready in the room-server build and will activate when that server is attached.';return;}try{roomSocket=new WebSocket(roomSocketUrl(room));roomState.textContent='Connecting…';roomSocket.onopen=()=>{roomState.textContent='Connected';roomSocket.send(JSON.stringify({type:'hello',name:(nameInput.value||'Guest').trim().slice(0,24)}));chatStatus.textContent='Room connected. Text chat is ready.';};roomSocket.onmessage=async event=>{let data;try{data=JSON.parse(event.data);}catch{return;}if(data.type==='ready'){myId=data.id;const peersList=data.peers||[];renderPeople([{id:myId,name:nameInput.value||'Guest'},...peersList]);addChatLine('System','You joined room '+room+'.');for(const p of peersList){try{await callPeer(p.id,p.name);}catch{}}}else if(data.type==='peer-joined'){const current=[{id:myId,name:nameInput.value||'Guest'},...Array.from(peers.keys()).map(id=>({id}))];renderPeople(current.concat([{id:data.peer?.id,name:data.peer?.name||'Guest'}]));addChatLine('System',(data.peer?.name||'Guest')+' joined the room.');}else if(data.type==='peer-left'){const pc=peers.get(data.id);pc?.close();peers.delete(data.id);renderPeople([{id:myId,name:nameInput.value||'Guest'},...Array.from(peers.keys()).map(id=>({id}))]);addChatLine('System','A guest left the room.');}else if(data.type==='chat'){addChatLine(data.name||'Guest',data.text||'',data.from===myId);}else if(data.type==='signal'){const pc=createPeer(data.from,data.name),signal=data.signal||{};try{if(signal.description){await pc.setRemoteDescription(signal.description);if(signal.description.type==='offer'){if(localStream)localStream.getTracks().forEach(t=>{if(!pc.getSenders().some(s=>s.track===t))pc.addTrack(t,localStream);});const answer=await pc.createAnswer();await pc.setLocalDescription(answer);roomSocket.send(JSON.stringify({type:'signal',to:data.from,signal:{description:pc.localDescription}}));}}if(signal.candidate)await pc.addIceCandidate(signal.candidate);}catch{}}};roomSocket.onclose=()=>{roomState.textContent='Not connected';chatStatus.textContent='Room connection closed. Share/join still works; live chat needs the room server.';};roomSocket.onerror=()=>{roomState.textContent='Unavailable';chatStatus.textContent='Live room server is not reachable from this deployment yet.';};}catch{roomState.textContent='Unavailable';}}
-document.querySelector('#sendChat').onclick=()=>{const text=chatInput.value.trim();if(!text)return;if(!roomSocket||roomSocket.readyState!==WebSocket.OPEN){chatStatus.textContent='Live chat is not connected on this deployment yet.';return;}roomSocket.send(JSON.stringify({type:'chat',text}));chatInput.value='';};chatInput.onkeydown=e=>{if(e.key==='Enter')document.querySelector('#sendChat').click();};
-document.querySelector('#voiceCall').onclick=async()=>{const stream=await startMedia(false);if(!stream||!roomSocket||roomSocket.readyState!==WebSocket.OPEN)return;for(const [id,pc] of peers){stream.getTracks().forEach(t=>{if(!pc.getSenders().some(s=>s.track===t))pc.addTrack(t,stream);});await callPeer(id,'');}};
-document.querySelector('#videoCall').onclick=async()=>{const stream=await startMedia(true);if(!stream||!roomSocket||roomSocket.readyState!==WebSocket.OPEN)return;for(const [id] of peers)await callPeer(id,'');};
-document.querySelector('#hangUp').onclick=()=>{localStream?.getTracks().forEach(t=>t.stop());localStream=null;localVideo.srcObject=null;remoteVideo.srcObject=null;remoteLabel.textContent='Waiting for a video guest';for(const pc of peers.values())pc.close();peers.clear();renderPeople([{id:myId,name:nameInput.value||'Guest'}]);chatStatus.textContent='Call ended.';};
+
+function addChatLine(name, text, mine = false) {
+  const empty = chatMessages.querySelector('.muted.small');
+  if (empty && chatMessages.children.length === 1) empty.remove();
+  const row = document.createElement('div');
+  row.className = 'chat-line' + (mine ? ' mine' : '');
+  const who = document.createElement('strong');
+  who.textContent = name;
+  const msg = document.createElement('span');
+  msg.textContent = text;
+  row.append(who, msg);
+  chatMessages.appendChild(row);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function presencePeople() {
+  if (!roomChannel) return [{ id: myId, name: nameInput.value || 'Guest' }];
+  const state = roomChannel.presenceState();
+  return Object.values(state).flat().map(p => ({ id: p.id, name: p.name || 'Guest' }));
+}
+
+function renderPeople(list = presencePeople()) {
+  people.innerHTML = '';
+  list.forEach(p => {
+    const el = document.createElement('span');
+    el.className = 'person';
+    el.textContent = (p.name || 'Guest') + (p.id === myId ? ' · You' : '');
+    people.appendChild(el);
+  });
+}
+
+function createRemoteVideo(peerId, name) {
+  let entry = remoteVideos.get(peerId);
+  if (entry) return entry.video;
+  const tile = document.createElement('div');
+  tile.className = 'video-tile';
+  const video = document.createElement('video');
+  video.autoplay = true;
+  video.playsInline = true;
+  const label = document.createElement('span');
+  label.textContent = name || 'Guest';
+  tile.append(video, label);
+  document.querySelector('#remoteVideos').appendChild(tile);
+  entry = { tile, video };
+  remoteVideos.set(peerId, entry);
+  return video;
+}
+
+function removeRemoteVideo(peerId) {
+  const entry = remoteVideos.get(peerId);
+  entry?.tile.remove();
+  remoteVideos.delete(peerId);
+}
+
+async function startMedia(videoMode) {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    chatStatus.textContent = 'This browser does not provide camera/microphone access.';
+    return null;
+  }
+  try {
+    localStream?.getTracks().forEach(t => t.stop());
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: !!videoMode });
+    localVideo.srcObject = videoMode ? localStream : null;
+    localVideo.muted = true;
+    chatStatus.textContent = videoMode ? 'Video call is ready.' : 'Voice call is ready.';
+    return localStream;
+  } catch {
+    chatStatus.textContent = 'Camera/microphone permission was not granted.';
+    return null;
+  }
+}
+
+function createPeer(peerId, name) {
+  if (peers.has(peerId)) return peers.get(peerId);
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+  });
+  peers.set(peerId, pc);
+  if (localStream) localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
+
+  pc.onicecandidate = event => {
+    if (event.candidate && roomChannel) {
+      roomChannel.send({
+        type: 'broadcast',
+        event: 'signal',
+        payload: { from: myId, to: peerId, name: nameInput.value || 'Guest', signal: { candidate: event.candidate } }
+      });
+    }
+  };
+
+  pc.ontrack = event => {
+    if (event.streams?.[0]) createRemoteVideo(peerId, name).srcObject = event.streams[0];
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+      pc.close();
+      peers.delete(peerId);
+      removeRemoteVideo(peerId);
+    }
+  };
+  return pc;
+}
+
+async function callPeer(peerId, name) {
+  if (!roomChannel || myId > peerId) return;
+  const pc = createPeer(peerId, name);
+  if (localStream) localStream.getTracks().forEach(t => {
+    if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, localStream);
+  });
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await roomChannel.send({
+    type: 'broadcast',
+    event: 'signal',
+    payload: { from: myId, to: peerId, name: nameInput.value || 'Guest', signal: { description: pc.localDescription } }
+  });
+}
+
+function closeRoomConnection() {
+  localStream?.getTracks().forEach(t => t.stop());
+  localStream = null;
+  localVideo.srcObject = null;
+  for (const pc of peers.values()) pc.close();
+  peers.clear();
+  for (const id of remoteVideos.keys()) removeRemoteVideo(id);
+  if (roomChannel) {
+    supabase.removeChannel(roomChannel);
+    roomChannel = null;
+  }
+  roomState.textContent = 'Not connected';
+  renderPeople();
+}
+
+async function connectRoom() {
+  const room = input.value.trim().toUpperCase();
+  if (!room || !/^[A-Z0-9]{4,8}$/.test(room)) return;
+  closeRoomConnection();
+  roomState.textContent = 'Connecting…';
+  chatStatus.textContent = 'Connecting the room…';
+  chatMessages.innerHTML = '<div class="muted small">Joining room…</div>';
+
+  roomChannel = supabase.channel('room:' + room, {
+    config: { presence: { key: myId } }
+  });
+
+  roomChannel
+    .on('presence', { event: 'sync' }, async () => {
+      const peopleNow = presencePeople();
+      renderPeople(peopleNow);
+      const peersNow = peopleNow.filter(p => p.id !== myId);
+      for (const p of peersNow) {
+        if (myId < p.id) {
+          try { await callPeer(p.id, p.name); } catch {}
+        }
+      }
+    })
+    .on('broadcast', { event: 'chat' }, ({ payload }) => {
+      if (!payload?.text) return;
+      addChatLine(payload.name || 'Guest', payload.text, payload.from === myId);
+    })
+    .on('broadcast', { event: 'signal' }, async ({ payload }) => {
+      if (!payload || payload.to !== myId) return;
+      const pc = createPeer(payload.from, payload.name || 'Guest');
+      const signal = payload.signal || {};
+      try {
+        if (signal.description) {
+          await pc.setRemoteDescription(signal.description);
+          if (signal.description.type === 'offer') {
+            if (localStream) localStream.getTracks().forEach(t => {
+              if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, localStream);
+            });
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await roomChannel.send({
+              type: 'broadcast',
+              event: 'signal',
+              payload: { from: myId, to: payload.from, name: nameInput.value || 'Guest', signal: { description: pc.localDescription } }
+            });
+          }
+        }
+        if (signal.candidate) await pc.addIceCandidate(signal.candidate);
+      } catch {}
+    })
+    .subscribe(async statusValue => {
+      if (statusValue !== 'SUBSCRIBED') {
+        if (statusValue === 'CHANNEL_ERROR' || statusValue === 'TIMED_OUT') {
+          roomState.textContent = 'Unavailable';
+          chatStatus.textContent = 'The live room service could not be reached. Your invite link still works.';
+        }
+        return;
+      }
+      roomState.textContent = 'Connected';
+      chatStatus.textContent = 'Room connected. Text chat is ready.';
+      await roomChannel.track({ id: myId, name: (nameInput.value || 'Guest').trim().slice(0, 24) || 'Guest' });
+      renderPeople();
+      addChatLine('System', 'You joined room ' + room + '.');
+    });
+}
+
+document.querySelector('#sendChat').onclick = async () => {
+  const text = chatInput.value.trim().slice(0, 500);
+  if (!text) return;
+  if (!roomChannel) {
+    chatStatus.textContent = 'Join a room first.';
+    return;
+  }
+  const result = await roomChannel.send({
+    type: 'broadcast',
+    event: 'chat',
+    payload: { from: myId, name: nameInput.value || 'Guest', text }
+  });
+  if (result !== 'ok') {
+    chatStatus.textContent = 'The message could not be sent. Please try again.';
+    return;
+  }
+  addChatLine(nameInput.value || 'Guest', text, true);
+  chatInput.value = '';
+};
+chatInput.onkeydown = e => { if (e.key === 'Enter') document.querySelector('#sendChat').click(); };
+
+document.querySelector('#voiceCall').onclick = async () => {
+  const stream = await startMedia(false);
+  if (!stream || !roomChannel) return;
+  for (const [id, pc] of peers) {
+    stream.getTracks().forEach(t => {
+      if (!pc.getSenders().some(s => s.track === t)) pc.addTrack(t, stream);
+    });
+    if (myId < id) await callPeer(id, '');
+  }
+};
+
+document.querySelector('#videoCall').onclick = async () => {
+  const stream = await startMedia(true);
+  if (!stream || !roomChannel) return;
+  for (const [id] of peers) if (myId < id) await callPeer(id, '');
+};
+
+document.querySelector('#hangUp').onclick = () => {
+  localStream?.getTracks().forEach(t => t.stop());
+  localStream = null;
+  localVideo.srcObject = null;
+  for (const pc of peers.values()) pc.close();
+  peers.clear();
+  for (const id of remoteVideos.keys()) removeRemoteVideo(id);
+  chatStatus.textContent = 'Call ended. The room is still open.';
+};
+
+
 
 function selectService(name) {
   activeService = services.find(s => s.name === name) || services[0];
