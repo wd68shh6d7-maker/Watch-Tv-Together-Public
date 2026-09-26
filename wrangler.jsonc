@@ -1,8 +1,11 @@
 {
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "watch-together-app",
   "compatibility_date": "2026-09-26",
   "main": "src/worker.js",
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
   }
 }
