@@ -62,7 +62,7 @@ document.querySelector('#app').innerHTML = `
   <section class="guide card" id="guide">
     <div class="section-head"><h2>Channel guide</h2><span id="guideService" class="pill">Choose a service</span></div>
     <div class="guide-tabs" id="guideTabs"></div>
-    <div class="guide-tools"><input id="channelSearch" placeholder="Search channels or categories" aria-label="Search channels or categories"><button id="openGuide">Open service</button></div>
+    <div class="guide-tools"><input id="channelSearch" placeholder="Search channels or categories" aria-label="Search channels or categories"><a id="openGuide" class="open provider-link" href="https://www.youtube.com/" target="_blank" rel="noopener noreferrer">Open service</a></div>
     <div class="channel-list" id="channelList"></div>
     <div class="channel-nav"><button id="prevChannel" class="secondary">‹ Previous</button><strong id="selectedChannel">Select a channel</strong><button id="nextChannel" class="secondary">Next ›</button></div>
     <p class="muted small">Choose a channel here, then tap Open to continue in the provider's own player or official stream. Watch Together does not bypass provider login, subscriptions, DRM, or channel restrictions.</p>
@@ -70,7 +70,7 @@ document.querySelector('#app').innerHTML = `
 
   <section class="card" id="together">
     <div class="section-head"><h2>Watch Together room</h2><span id="roomState" class="pill">Not connected</span></div>
-    <div class="share-panel"><div><strong>Everyone can invite. Everyone can create a room.</strong><p class="muted">Use Share to send this room through Messages, Messenger, email, or your device's normal share menu. Creating another room never takes over this one.</p></div><div class="share-actions"><button id="openChat">💬 Open chat</button><button id="copyInvite" class="secondary">🔗 Copy invite</button></div></div><div id="watchingNow" class="watching-now" hidden><div><span class="eyebrow">WATCHING TOGETHER</span><strong id="watchingTitle">Nothing selected yet</strong><p id="watchingDetail" class="muted small">Choose a service or channel to share it with the room.</p></div><button id="openWatching" class="secondary">Open on my device</button></div>
+    <div class="share-panel"><div><strong>Everyone can invite. Everyone can create a room.</strong><p class="muted">Use Share to send this room through Messages, Messenger, email, or your device's normal share menu. Creating another room never takes over this one.</p></div><div class="share-actions"><button id="openChat">💬 Open chat</button><button id="copyInvite" class="secondary">🔗 Copy invite</button></div></div><div id="watchingNow" class="watching-now" hidden><div><span class="eyebrow">WATCHING TOGETHER</span><strong id="watchingTitle">Nothing selected yet</strong><p id="watchingDetail" class="muted small">Choose a service or channel to share it with the room.</p></div><a id="openWatching" class="secondary provider-link" href="#" target="_blank" rel="noopener noreferrer">Open on my device</a></div>
     <div class="people" id="people"></div>
     <div class="media-stage"><div class="video-tile"><video id="localVideo" autoplay muted playsinline></video><span>You</span></div><div id="remoteVideos" class="remote-videos"><div class="video-tile"><span class="muted small">Waiting for a video guest</span></div></div></div>
     <div class="call-controls"><button id="voiceCall">🎙️ Voice</button><button id="videoCall">📹 Video</button><button id="hangUp" class="secondary">✕ End call</button></div>
@@ -522,6 +522,12 @@ document.querySelector('#hangUp').onclick = () => {
 
 
 
+function syncProviderLinks() {
+  const url = activeService?.url || '#';
+  document.querySelector('#openGuide').href = url;
+  openWatching.href = sharedWatch?.serviceUrl || url;
+}
+
 function selectService(name) {
   activeService = services.find(s => s.name === name) || services[0];
   filteredChannels = [...activeService.guide];
@@ -530,6 +536,7 @@ function selectService(name) {
   channelSearch.value = '';
   renderGuideTabs();
   renderChannels();
+  syncProviderLinks();
   document.querySelector('#guide').scrollIntoView({behavior:'smooth', block:'start'});
   if (roomReady) broadcastWatchSelection();
 }
@@ -571,22 +578,15 @@ async function broadcastWatchSelection() {
 function showWatching(payload) {
   if (!payload?.service || !payload?.serviceUrl) return;
   sharedWatch = payload;
+  syncProviderLinks();
   watchingNow.hidden = false;
   watchingTitle.textContent = payload.service;
   watchingDetail.textContent = (payload.from || 'Your guest') + ' selected ' + (payload.channel || payload.service) + '.';
 }
-openWatching.onclick = () => { if (sharedWatch?.serviceUrl) window.open(sharedWatch.serviceUrl, '_blank', 'noopener,noreferrer'); };
-document.querySelector('#openGuide').onclick = async () => {
-  const providerWindow = window.open('about:blank', '_blank');
-  if (!providerWindow) {
-    status.textContent = 'Your browser blocked the provider window. Please allow pop-ups for Watch Together.';
-    return;
-  }
-  providerWindow.opener = null;
-  providerWindow.location.href = activeService.url;
-  status.textContent = activeService.name + ': opening the official provider player.';
-  await broadcastWatchSelection();
+document.querySelector('#openGuide').onclick = () => {
+  if (roomReady) broadcastWatchSelection();
 };
+openWatching.onclick = () => {};
 
 document.querySelectorAll('[data-control]').forEach(b => b.onclick = () => status.textContent = `${b.textContent.trim()} requested for room ${input.value.trim().toUpperCase() || 'this room'}.`);
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
