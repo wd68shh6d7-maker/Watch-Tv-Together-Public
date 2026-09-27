@@ -577,9 +577,15 @@ function showWatching(payload) {
 }
 openWatching.onclick = () => { if (sharedWatch?.serviceUrl) window.open(sharedWatch.serviceUrl, '_blank', 'noopener,noreferrer'); };
 document.querySelector('#openGuide').onclick = async () => {
-  await broadcastWatchSelection();
+  const providerWindow = window.open('about:blank', '_blank');
+  if (!providerWindow) {
+    status.textContent = 'Your browser blocked the provider window. Please allow pop-ups for Watch Together.';
+    return;
+  }
+  providerWindow.opener = null;
+  providerWindow.location.href = activeService.url;
   status.textContent = activeService.name + ': opening the official provider player.';
-  window.open(activeService.url, '_blank', 'noopener,noreferrer');
+  await broadcastWatchSelection();
 };
 
 document.querySelectorAll('[data-control]').forEach(b => b.onclick = () => status.textContent = `${b.textContent.trim()} requested for room ${input.value.trim().toUpperCase() || 'this room'}.`);
