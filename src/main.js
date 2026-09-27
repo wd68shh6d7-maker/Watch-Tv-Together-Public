@@ -79,6 +79,9 @@ document.querySelector('#app').innerHTML = `
     <p class="muted small">Watch Together never asks for or stores your streaming passwords and does not bypass provider login, subscriptions, DRM, or channel restrictions.</p>
   </section>
 
+  <button id="floatingChat" class="floating-chat" type="button" aria-controls="chatDrawer" aria-expanded="false">💬 Chat <span id="chatUnread" hidden>0</span></button>
+  <aside id="chatDrawer" class="chat-drawer" aria-label="Room chat" aria-hidden="true"><div class="chat-drawer-head"><strong>Room chat</strong><button id="closeChat" class="secondary" type="button" aria-label="Close chat">✕</button></div><div class="chat-drawer-messages" id="drawerMessages"></div><div class="chat-compose"><input id="drawerInput" maxlength="500" placeholder="Type a message…" aria-label="Room chat message"><button id="drawerSend" type="button">Send</button></div></aside>
+
   <section class="sponsor"><span>Sponsored support</span><strong>Discreet sponsor space — never blocks your screen.</strong></section>
   <footer>Watch Together · Built for simple, shared movie nights</footer>
 </main>`;
@@ -99,6 +102,12 @@ renderServices('#paidServices', services.filter(s => !s.free));
 const status = document.querySelector('#status'), input = document.querySelector('#room'), nameInput = document.querySelector('#name'), badge = document.querySelector('#userBadge');
 const roomState = document.querySelector('#roomState'), people = document.querySelector('#people'), chatMessages = document.querySelector('#chatMessages'), chatInput = document.querySelector('#chatInput'), chatStatus = document.querySelector('#chatStatus'), localVideo = document.querySelector('#localVideo'), remoteVideo = document.querySelector('#remoteVideo'), remoteLabel = document.querySelector('#remoteLabel');
 const guideService = document.querySelector('#guideService'), guideTabs = document.querySelector('#guideTabs'), channelSearch = document.querySelector('#channelSearch'), channelList = document.querySelector('#channelList'), selectedChannel = document.querySelector('#selectedChannel');
+const floatingChat = document.querySelector('#floatingChat'), chatDrawer = document.querySelector('#chatDrawer'), closeChat = document.querySelector('#closeChat'), drawerMessages = document.querySelector('#drawerMessages'), drawerInput = document.querySelector('#drawerInput'), drawerSend = document.querySelector('#drawerSend'), chatUnread = document.querySelector('#chatUnread');
+let drawerOpen = false;
+function setChatDrawer(open) { drawerOpen = open; chatDrawer.classList.toggle('open', open); chatDrawer.setAttribute('aria-hidden', String(!open)); floatingChat.setAttribute('aria-expanded', String(open)); if (open) { chatUnread.hidden = true; chatUnread.textContent = '0'; drawerInput.focus(); drawerMessages.scrollTop = drawerMessages.scrollHeight; } }
+floatingChat.onclick = () => setChatDrawer(!drawerOpen);
+closeChat.onclick = () => setChatDrawer(false);
+function addDrawerLine(name, text, mine = false) { const row = document.createElement('div'); row.className = 'chat-line' + (mine ? ' mine' : ''); const who = document.createElement('strong'); who.textContent = name; const msg = document.createElement('span'); msg.textContent = text; row.append(who, msg); drawerMessages.appendChild(row); drawerMessages.scrollTop = drawerMessages.scrollHeight; if (!drawerOpen && !mine) { const n = Number(chatUnread.textContent || 0) + 1; chatUnread.textContent = String(n); chatUnread.hidden = false; } }
 const watchingNow = document.querySelector('#watchingNow'), watchingTitle = document.querySelector('#watchingTitle'), watchingDetail = document.querySelector('#watchingDetail'), openWatching = document.querySelector('#openWatching');
 let sharedWatch = null;
 let activeService = services[0], filteredChannels = [...activeService.guide], selectedIndex = 0;
@@ -190,6 +199,7 @@ function addChatLine(name, text, mine = false) {
   row.append(who, msg);
   chatMessages.appendChild(row);
   chatMessages.scrollTop = chatMessages.scrollHeight;
+  addDrawerLine(name, text, mine);
 }
 
 function presencePeople() {
@@ -432,23 +442,23 @@ async function connectRoom() {
     });
 }
 
-document.querySelector('#sendChat').onclick = async () => {
-  const text = chatInput.value.trim().slice(0, 500);
-  if (!text) return;
-  if (!roomReady) {
-    chatStatus.textContent = 'Join a room first, then send your message.';
-    return;
-  }
+async function sendChatMessage(value) {
+  const text = value.trim().slice(0, 500);
+  if (!text) return false;
+  if (!roomReady) { chatStatus.textContent = 'Join a room first, then send your message.'; return false; }
   const payload = { from: myId, name: nameInput.value || 'Guest', text };
   const ok = await sendRoomEvent('chat', payload);
-  if (!ok) {
-    chatStatus.textContent = 'The message could not be delivered. Please try again.';
-    return;
-  }
+  if (!ok) { chatStatus.textContent = 'The message could not be delivered. Please try again.'; return false; }
   addChatLine(nameInput.value || 'Guest', text, true);
-  chatInput.value = '';
+  return true;
+}
+drawerSend.onclick = async () => { if (await sendChatMessage(drawerInput.value)) drawerInput.value = ''; };
+drawerInput.onkeydown = e => { if (e.key === 'Enter') drawerSend.click(); };
+document.querySelector('#sendChat').onclick = async () => {
+  if (await sendChatMessage(chatInput.value)) chatInput.value = '';
 };
 chatInput.onkeydown = e => { if (e.key === 'Enter') document.querySelector('#sendChat').click(); };
+document.querySelector('#openChat').onclick = () => setChatDrawer(true);
 
 async function ensureMediaCalls() {
   if (!roomReady || !localStream) return;
