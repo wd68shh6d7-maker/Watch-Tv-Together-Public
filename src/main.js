@@ -110,6 +110,8 @@ closeChat.onclick = () => setChatDrawer(false);
 function addDrawerLine(name, text, mine = false) { const row = document.createElement('div'); row.className = 'chat-line' + (mine ? ' mine' : ''); const who = document.createElement('strong'); who.textContent = name; const msg = document.createElement('span'); msg.textContent = text; row.append(who, msg); drawerMessages.appendChild(row); drawerMessages.scrollTop = drawerMessages.scrollHeight; if (!drawerOpen && !mine) { const n = Number(chatUnread.textContent || 0) + 1; chatUnread.textContent = String(n); chatUnread.hidden = false; } }
 const watchingNow = document.querySelector('#watchingNow'), watchingTitle = document.querySelector('#watchingTitle'), watchingDetail = document.querySelector('#watchingDetail'), openWatching = document.querySelector('#openWatching');
 let sharedWatch = null;
+let presenceTrackTimer = null;
+let lastPresenceSignature = '';
 let activeService = services[0], filteredChannels = [...activeService.guide], selectedIndex = 0;
 
 const savedName = localStorage.getItem('watchTogetherName');
@@ -325,6 +327,9 @@ function closeRoomConnection() {
   for (const pc of peers.values()) pc.close();
   peers.clear();
   for (const id of remoteVideos.keys()) removeRemoteVideo(id);
+  clearTimeout(presenceTrackTimer);
+  presenceTrackTimer = null;
+  lastPresenceSignature = '';
   if (roomChannel) {
     supabase.removeChannel(roomChannel);
     roomChannel = null;
@@ -344,13 +349,29 @@ async function sendRoomEvent(event, payload) {
   }
 }
 
-async function trackRoomPresence() {
+async function trackRoomPresence(force = false) {
   if (!roomChannel || !roomReady) return;
-  await roomChannel.track({
+  const payload = {
     id: myId,
     name: (nameInput.value || 'Guest').trim().slice(0, 24) || 'Guest',
     watch: sharedWatch || null
-  });
+  };
+  const signature = JSON.stringify(payload);
+  if (!force && signature === lastPresenceSignature) return;
+  lastPresenceSignature = signature;
+  try {
+    await roomChannel.track(payload);
+  } catch {
+    // Broadcast remains the live path; Presence is only for slow-changing room state.
+  }
+}
+
+function schedulePresenceUpdate() {
+  clearTimeout(presenceTrackTimer);
+  presenceTrackTimer = setTimeout(() => {
+    presenceTrackTimer = null;
+    trackRoomPresence(false);
+  }, 900);
 }
 
 async function connectRoom() {
@@ -384,8 +405,8 @@ async function connectRoom() {
       }
     })
     .on('broadcast', { event: 'chat' }, ({ payload }) => {
-      if (!payload?.text) return;
-      addChatLine(payload.name || 'Guest', payload.text, payload.from === myId);
+      if (!payload?.text || payload.from === myId) return;
+      addChatLine(payload.name || 'Guest', payload.text, false);
     })
     .on('broadcast', { event: 'watch' }, ({ payload }) => showWatching(payload))
     .on('broadcast', { event: 'signal' }, async ({ payload }) => {
@@ -436,7 +457,7 @@ async function connectRoom() {
       roomReady = true;
       roomState.textContent = 'Connected';
       chatStatus.textContent = 'Room connected. Text chat is ready.';
-      await trackRoomPresence();
+      await trackRoomPresence(true);
       renderPeople();
       addChatLine('System', 'You joined room ' + room + '.');
     });
@@ -544,8 +565,8 @@ async function broadcastWatchSelection() {
     from: nameInput.value || 'Guest'
   };
   sharedWatch = payload;
-  await trackRoomPresence();
   await sendRoomEvent('watch', payload);
+  schedulePresenceUpdate();
 }
 function showWatching(payload) {
   if (!payload?.service || !payload?.serviceUrl) return;
