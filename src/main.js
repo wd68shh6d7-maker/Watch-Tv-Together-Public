@@ -578,8 +578,8 @@ function showWatching(payload) {
 openWatching.onclick = () => { if (sharedWatch?.serviceUrl) window.open(sharedWatch.serviceUrl, '_blank', 'noopener,noreferrer'); };
 document.querySelector('#openGuide').onclick = async () => {
   await broadcastWatchSelection();
-  document.querySelector('#together').scrollIntoView({behavior:'smooth', block:'start'});
-  status.textContent = activeService.name + ': selection shared with the room. Use “Open on my device” only when you want to leave Watch Together for the provider player.';
+  status.textContent = activeService.name + ': opening the official provider player.';
+  window.open(activeService.url, '_blank', 'noopener,noreferrer');
 };
 
 document.querySelectorAll('[data-control]').forEach(b => b.onclick = () => status.textContent = `${b.textContent.trim()} requested for room ${input.value.trim().toUpperCase() || 'this room'}.`);
